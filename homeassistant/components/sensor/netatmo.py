@@ -19,11 +19,12 @@ _LOGGER = logging.getLogger(__name__)
 
 CONF_MODULES = 'modules'
 CONF_STATION = 'station'
+CONF_UPDATE_INTERVAL = 'update_interval'
 
 DEPENDENCIES = ['netatmo']
 
-# NetAtmo Data is uploaded to server every 5 minutes
-MIN_TIME_BETWEEN_UPDATES = timedelta(seconds=300)
+# Default corresponds to NetAtmo data upload interval (10 minutes)
+DEFAULT_UPDATE_INTERVAL = timedelta(seconds=600)
 
 SENSOR_TYPES = {
     'temperature': ['Temperature', TEMP_CELSIUS, 'mdi:thermometer'],
@@ -58,13 +59,17 @@ MODULE_SCHEMA = vol.Schema({
 PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
     vol.Optional(CONF_STATION): cv.string,
     vol.Optional(CONF_MODULES): MODULE_SCHEMA,
+    vol.Optional(CONF_UPDATE_INTERVAL,
+                 default=DEFAULT_UPDATE_INTERVAL): (
+        vol.All(cv.time_period, cv.positive_timedelta)),
 })
 
 
 def setup_platform(hass, config, add_devices, discovery_info=None):
     """Set up the available Netatmo weather sensors."""
     netatmo = hass.components.netatmo
-    data = NetAtmoData(netatmo.NETATMO_AUTH, config.get(CONF_STATION, None))
+    data = NetAtmoData(netatmo.NETATMO_AUTH, config.get(CONF_STATION, None),
+                       config.get(CONF_UPDATE_INTERVAL))
 
     dev = []
     import lnetatmo
@@ -280,20 +285,21 @@ class NetAtmoSensor(Entity):
 class NetAtmoData(object):
     """Get the latest data from NetAtmo."""
 
-    def __init__(self, auth, station):
+    def __init__(self, auth, station, interval):
         """Initialize the data object."""
         self.auth = auth
         self.data = None
         self.station_data = None
         self.station = station
+        # Make sure the update() method is throttled as configured
+        self.update = Throttle(interval)(self._update)
 
     def get_module_names(self):
         """Return all module available on the API as a list."""
         self.update()
         return self.data.keys()
 
-    @Throttle(MIN_TIME_BETWEEN_UPDATES)
-    def update(self):
+    def _update(self):
         """Call the Netatmo API to update the data."""
         import lnetatmo
         self.station_data = lnetatmo.WeatherStationData(self.auth)
