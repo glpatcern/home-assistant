@@ -329,8 +329,8 @@ class Throttle(object):
                 force = kwargs.pop('no_throttle', False) or not throttle[1]
 
                 if force or utcnow() - throttle[1] > self.min_time:
-                    throttle[1] = utcnow()
                     result = method(*args, **kwargs)
+                    throttle[1] = utcnow()
                     return result
                 return throttled_value()
 
